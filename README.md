@@ -11,6 +11,14 @@ A college-ready attendance system that detects registered Bluetooth Low Energy (
 - Simulation mode uses real registration records and synthetic sightings, ideal for a classroom presentation.
 - Local SQLite database—no cloud account or internet required.
 
+### Demo dataset
+
+On a fresh (empty) database the app automatically loads a sample dataset — 16 students
+across four departments plus about two weeks of realistic attendance history — so the
+dashboard and analytics are populated the moment it opens. This is ideal for Streamlit
+Cloud, where the SQLite file is recreated on every restart. Use **Load demo dataset** or
+**Reset demo data** in the sidebar, or set `ATTENDANCE_AUTO_SEED=0` to disable auto-loading.
+
 ### Dashboard features
 
 - **Dashboard tab** — KPI cards, attendance-rate progress bar, a visual status board, inline attendance correction with a spreadsheet-style editor, and CSV export.
@@ -31,7 +39,10 @@ attendance/
   database.py             SQLite schema and data-access layer
   scanner.py              BLE scan and beacon matching service
   simulator.py            Hardware-free demonstration helpers
-tests/test_database.py    Core database tests
+  sample_data.py          Sample roster + historical attendance generator
+tests/
+  test_database.py        Core database tests
+  test_sample_data.py     Sample dataset tests
 ```
 
 ## Setup

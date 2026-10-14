@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import html
+import os
 from datetime import date, datetime, time, timedelta
 
 import pandas as pd
@@ -8,8 +9,9 @@ import streamlit as st
 
 from attendance.config import APP_TIMEZONE, DB_PATH, LATE_CUTOFF
 from attendance.database import AttendanceRepository
+from attendance.sample_data import reset_demo_dataset, seed_demo_dataset
 from attendance.scanner import scan_once
-from attendance.simulator import seed_sample_students, simulate_detections
+from attendance.simulator import simulate_detections
 
 
 STATUS_OPTIONS = ["Present", "Late", "Absent", "Excused"]
@@ -179,12 +181,29 @@ defaults = {
     "scan_results": None,
     "scan_note": None,
     "last_scan_at": None,
+    "demo_seeded": False,
+    "demo_banner_shown": False,
 }
 for key, value in defaults.items():
     st.session_state.setdefault(key, value)
 
+# On a fresh database (e.g. the first run on Streamlit Cloud, where storage is
+# ephemeral) load the sample roster + history so the dashboard is never empty.
+AUTO_SEED = os.environ.get("ATTENDANCE_AUTO_SEED", "1").strip().lower() not in {"0", "false", "no"}
+if AUTO_SEED and not st.session_state.demo_seeded and not repo.list_students():
+    seed_demo_dataset(repo)
+    st.session_state.demo_seeded = True
+
 
 hero()
+
+if st.session_state.demo_seeded and not st.session_state.demo_banner_shown:
+    st.info(
+        "👋 **Demo dataset loaded.** 16 sample students and two weeks of attendance were added "
+        "automatically so the dashboard has data to show. Use **Run demo simulation** in the sidebar "
+        "for live sightings — real BLE scans need a local Bluetooth adapter."
+    )
+    st.session_state.demo_banner_shown = True
 
 with st.sidebar:
     st.markdown(
@@ -257,9 +276,22 @@ with st.sidebar:
         unsafe_allow_html=True,
     )
     st.divider()
-    if st.button("Seed sample students", width="stretch"):
-        added = seed_sample_students(repo)
-        st.success(f"Added {added} sample student(s).")
+    if st.button("🪄 Load demo dataset", width="stretch",
+                 help="Add 16 sample students and two weeks of realistic attendance history."):
+        result = seed_demo_dataset(repo)
+        st.success(
+            f"Added {result['students_added']} student(s) and "
+            f"{result['attendance_created']} attendance record(s)."
+        )
+        st.rerun()
+    if st.button("♻️ Reset demo data", width="stretch",
+                 help="Delete all students and records, then rebuild the demo dataset."):
+        result = reset_demo_dataset(repo)
+        st.success(
+            f"Rebuilt demo data: {result['students_added']} student(s), "
+            f"{result['attendance_created']} record(s)."
+        )
+        st.rerun()
     if st.button("Refresh data", width="stretch"):
         st.rerun()
     st.caption(f"DB: {DB_PATH.name}  ·  {APP_TIMEZONE}")
