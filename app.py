@@ -9,7 +9,7 @@ import streamlit as st
 
 from attendance.config import APP_TIMEZONE, DB_PATH, LATE_CUTOFF
 from attendance.database import AttendanceRepository
-from attendance.sample_data import reset_demo_dataset, seed_demo_dataset
+from attendance.sample_data import SAMPLE_STUDENTS, reset_demo_dataset, seed_demo_dataset
 from attendance.scanner import scan_once
 from attendance.simulator import simulate_detections
 
@@ -199,9 +199,10 @@ hero()
 
 if st.session_state.demo_seeded and not st.session_state.demo_banner_shown:
     st.info(
-        "👋 **Demo dataset loaded.** 16 sample students and two weeks of attendance were added "
-        "automatically so the dashboard has data to show. Use **Run demo simulation** in the sidebar "
-        "for live sightings — real BLE scans need a local Bluetooth adapter."
+        f"👋 **Demo dataset loaded.** {len(SAMPLE_STUDENTS)} sample students and two weeks of "
+        "attendance were added automatically so the dashboard has data to show. Use "
+        "**Run demo simulation** in the sidebar for live sightings — real BLE scans need a "
+        "local Bluetooth adapter."
     )
     st.session_state.demo_banner_shown = True
 
@@ -277,7 +278,7 @@ with st.sidebar:
     )
     st.divider()
     if st.button("🪄 Load demo dataset", width="stretch",
-                 help="Add 16 sample students and two weeks of realistic attendance history."):
+                 help=f"Add {len(SAMPLE_STUDENTS)} sample students and two weeks of realistic attendance history."):
         result = seed_demo_dataset(repo)
         st.success(
             f"Added {result['students_added']} student(s) and "

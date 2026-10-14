@@ -69,6 +69,9 @@ class AttendanceRepository:
         self.db_path.parent.mkdir(parents=True, exist_ok=True)
         conn = sqlite3.connect(self.db_path)
         conn.row_factory = sqlite3.Row
+        conn.execute("PRAGMA foreign_keys = ON")
+        conn.execute("PRAGMA journal_mode = WAL")
+        conn.execute("PRAGMA synchronous = NORMAL")
         try:
             yield conn
             conn.commit()
@@ -116,42 +119,60 @@ class AttendanceRepository:
         ``Late`` instead of ``Present`` if it happens after that local time. Leaving it as
         ``None`` keeps the original behaviour where every first sighting is ``Present``.
         """
+        with self.connection() as conn:
+            return self._record_detection(conn, address, name, rssi, seen_at, late_after)
+
+    def _record_detection(
+        self,
+        conn: sqlite3.Connection,
+        address: str,
+        name: str | None = None,
+        rssi: int | None = None,
+        seen_at: datetime | None = None,
+        late_after: time | None = None,
+    ) -> dict | None:
+        """Core detection logic that operates on an existing connection."""
         timestamp = (seen_at or now_local()).replace(microsecond=0)
         address = normalize_address(address)
-        with self.connection() as conn:
-            student = conn.execute(
-                "SELECT * FROM students WHERE beacon_address = ? AND active = 1", (address,)
-            ).fetchone()
-            student_id = student["id"] if student else None
+        student = conn.execute(
+            "SELECT * FROM students WHERE beacon_address = ? AND active = 1", (address,)
+        ).fetchone()
+        student_id = student["id"] if student else None
+        conn.execute(
+            """INSERT INTO detection_log (student_id, device_address, device_name, rssi, seen_at)
+               VALUES (?, ?, ?, ?, ?)""",
+            (student_id, address, name, rssi, timestamp.isoformat()),
+        )
+        if not student:
+            return None
+        today = timestamp.date().isoformat()
+        existing = conn.execute(
+            "SELECT id FROM attendance WHERE student_id = ? AND attendance_date = ?",
+            (student_id, today),
+        ).fetchone()
+        if existing:
             conn.execute(
-                """INSERT INTO detection_log (student_id, device_address, device_name, rssi, seen_at)
-                   VALUES (?, ?, ?, ?, ?)""",
-                (student_id, address, name, rssi, timestamp.isoformat()),
+                """UPDATE attendance SET last_seen = ?, detection_count = detection_count + 1
+                   WHERE id = ?""",
+                (timestamp.isoformat(), existing["id"]),
             )
-            if not student:
-                return None
-            today = timestamp.date().isoformat()
-            existing = conn.execute(
-                "SELECT id FROM attendance WHERE student_id = ? AND attendance_date = ?",
-                (student_id, today),
-            ).fetchone()
-            if existing:
-                conn.execute(
-                    """UPDATE attendance SET last_seen = ?, detection_count = detection_count + 1
-                       WHERE id = ?""",
-                    (timestamp.isoformat(), existing["id"]),
-                )
-            else:
-                status = "Present"
-                if late_after is not None and timestamp.time() > late_after:
-                    status = "Late"
-                conn.execute(
-                    """INSERT INTO attendance
-                       (student_id, attendance_date, status, first_seen, last_seen, detection_count)
-                       VALUES (?, ?, ?, ?, ?, 1)""",
-                    (student_id, today, status, timestamp.isoformat(), timestamp.isoformat()),
-                )
-            return dict(student)
+        else:
+            status = "Present"
+            if late_after is not None and timestamp.time() > late_after:
+                status = "Late"
+            conn.execute(
+                """INSERT INTO attendance
+                   (student_id, attendance_date, status, first_seen, last_seen, detection_count)
+                   VALUES (?, ?, ?, ?, ?, 1)""",
+                (student_id, today, status, timestamp.isoformat(), timestamp.isoformat()),
+            )
+        return dict(student)
+
+    def record_detections_bulk(self, entries: list[dict]) -> None:
+        """Record many sightings in a single transaction (used for seeding/demos)."""
+        with self.connection() as conn:
+            for entry in entries:
+                self._record_detection(conn, **entry)
 
     def set_attendance_status(
         self, student_id: int, attendance_date: str, status: str, notes: str = ""
@@ -160,13 +181,32 @@ class AttendanceRepository:
         if status not in valid_statuses:
             raise ValueError(f"status must be one of {sorted(valid_statuses)}")
         with self.connection() as conn:
-            conn.execute(
-                """INSERT INTO attendance (student_id, attendance_date, status, notes)
-                   VALUES (?, ?, ?, ?)
-                   ON CONFLICT(student_id, attendance_date) DO UPDATE SET
-                       status = excluded.status, notes = excluded.notes""",
-                (student_id, attendance_date, status, notes.strip() or None),
-            )
+            self._set_attendance_status(conn, student_id, attendance_date, status, notes)
+
+    def _set_attendance_status(
+        self,
+        conn: sqlite3.Connection,
+        student_id: int,
+        attendance_date: str,
+        status: str,
+        notes: str = "",
+    ) -> None:
+        valid_statuses = {"Present", "Late", "Absent", "Excused"}
+        if status not in valid_statuses:
+            raise ValueError(f"status must be one of {sorted(valid_statuses)}")
+        conn.execute(
+            """INSERT INTO attendance (student_id, attendance_date, status, notes)
+               VALUES (?, ?, ?, ?)
+               ON CONFLICT(student_id, attendance_date) DO UPDATE SET
+                   status = excluded.status, notes = excluded.notes""",
+            (student_id, attendance_date, status, notes.strip() or None),
+        )
+
+    def set_attendance_status_bulk(self, entries: list[dict]) -> None:
+        """Apply many manual status changes in a single transaction."""
+        with self.connection() as conn:
+            for entry in entries:
+                self._set_attendance_status(conn, **entry)
 
     def clear_attendance(self, student_id: int, attendance_date: str) -> None:
         with self.connection() as conn:

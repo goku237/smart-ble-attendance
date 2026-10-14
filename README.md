@@ -13,8 +13,8 @@ A college-ready attendance system that detects registered Bluetooth Low Energy (
 
 ### Demo dataset
 
-On a fresh (empty) database the app automatically loads a sample dataset — 16 students
-across four departments plus about two weeks of realistic attendance history — so the
+On a fresh (empty) database the app automatically loads a sample dataset — 50 students
+across six departments plus about two weeks of realistic attendance history — so the
 dashboard and analytics are populated the moment it opens. This is ideal for Streamlit
 Cloud, where the SQLite file is recreated on every restart. Use **Load demo dataset** or
 **Reset demo data** in the sidebar, or set `ATTENDANCE_AUTO_SEED=0` to disable auto-loading.
